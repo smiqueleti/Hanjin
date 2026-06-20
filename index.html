@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Vehicle-Day Simulation — Vehicle-001</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{--bg:#0f1623;--panel:#172033;--ink:#e7edf6;--mut:#8aa0bd;--load:#1d4ed8;--empty:#ea580c;--hub:#ef4444;--line:#243047}
+  *{box-sizing:border-box} body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{padding:16px 22px;border-bottom:1px solid var(--line)}
+  h1{font-size:18px;margin:0 0 2px} .sub{color:var(--mut);font-size:13px}
+  .kpis{display:flex;gap:14px;flex-wrap:wrap;padding:14px 22px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:118px}
+  .kpi .v{font-size:22px;font-weight:700} .kpi .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+  .kpi.bad .v{color:var(--empty)}
+  .controls{display:flex;gap:10px;align-items:center;padding:10px 22px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .btn{background:var(--load);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn.sec{background:#2a3850} .btn:active{transform:translateY(1px)}
+  select{background:#2a3850;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:13px}
+  #banner{margin-left:auto;font-size:13px;color:var(--mut)} #banner b{color:var(--ink)}
+  .legend{display:flex;gap:16px;padding:6px 22px;font-size:12px;color:var(--mut);align-items:center;flex-wrap:wrap}
+  .sw{display:inline-block;width:22px;height:3px;vertical-align:middle;margin-right:5px}
+  .wrap{display:grid;grid-template-columns:1.7fr 1fr;height:60vh;border-top:1px solid var(--line)}
+  #map{height:100%} .panel{background:var(--panel);overflow-y:auto;padding:8px 0}
+  .leg{display:flex;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line);font-size:13px;align-items:flex-start}
+  .leg.cur{background:rgba(29,78,216,.16);box-shadow:inset 3px 0 0 var(--load)}
+  .dot{width:10px;height:10px;border-radius:50%;margin-top:4px;flex:0 0 auto}
+  .dot.loaded{background:var(--load)} .dot.empty{background:var(--empty)}
+  .leg .r{font-weight:600} .leg .m{color:var(--mut);font-size:12px}
+  .tag{font-size:10px;padding:1px 6px;border-radius:6px;text-transform:uppercase;letter-spacing:.04em}
+  .tag.loaded{background:rgba(29,78,216,.2);color:#93c5fd} .tag.empty{background:rgba(234,88,12,.2);color:#fdba74}
+  .truck{font-size:22px;filter:drop-shadow(0 0 3px rgba(0,0,0,.6));line-height:22px}
+  .notes{padding:14px 22px;border-top:1px solid var(--line);color:var(--mut);font-size:12.5px;line-height:1.55}
+  .notes b{color:var(--ink)}
+</style></head><body>
+<header><h1>Vehicle-Day Simulation &mdash; <span style="color:#93c5fd">Vehicle-001</span></h1>
+  <div class="sub">(de-identified) &middot; hub: Distribution Hub &middot; active window 08:01 – 20:51 &middot; illustrative / de-identified</div></header>
+<div class="kpis">
+  <div class="kpi"><div class="v">7</div><div class="l">Loaded legs</div></div>
+  <div class="kpi"><div class="v">6</div><div class="l">Empty returns</div></div>
+  <div class="kpi"><div class="v">33.7 km</div><div class="l">Loaded distance</div></div>
+  <div class="kpi bad"><div class="v">33.3 km</div><div class="l">Empty distance</div></div>
+  <div class="kpi bad"><div class="v">49.7%</div><div class="l">Distance run empty</div></div>
+</div>
+<div class="controls">
+  <button class="btn" id="play">&#9654; Play</button>
+  <button class="btn sec" id="reset">&#8635; Reset</button>
+  <label style="font-size:13px;color:var(--mut)">Speed
+    <select id="speed"><option value="0.5">0.5&times;</option><option value="1" selected>1&times;</option><option value="2">2&times;</option><option value="4">4&times;</option></select></label>
+  <div id="banner">Press <b>Play</b> &mdash; leg <b id="legno">0</b>/13</div>
+</div>
+<div class="legend">
+  <span><span class="sw" style="background:#1d4ed8"></span>Loaded (pickup &rarr; delivery)</span>
+  <span><span class="sw" style="background:#ea580c"></span>Empty reposition (back to hub)</span>
+  <span><span class="sw" style="background:#ef4444;border-radius:50%;width:10px;height:10px"></span>Hub</span>
+  <span>&#128666; current position</span>
+</div>
+<div class="wrap"><div id="map"></div><div class="panel" id="panel"></div></div>
+<div class="notes">
+  <b>What this shows.</b> One vehicle's day: each order split into a pickup (origin) and delivery (destination), legs in pickup order. Solid blue = loaded; dashed orange = empty repositioning back to the hub. Straight-line distances; animation pace scaled by distance.
+  <b>De-identified / illustrative</b> &mdash; labels, vehicle id and coordinates are anonymized; the loaded-vs-empty pattern is representative.
+</div>
+<script>
+const DATA = {"meta": {"vehicle": "Vehicle-001", "date": "illustrative day", "source": "(de-identified)", "hub": "Distribution Hub", "n_loaded": 7, "n_empty": 6, "loaded_km": 33.7, "empty_km": 33.3, "empty_pct": 49.7, "window": "08:01 – 20:51"}, "legs": [{"type": "loaded", "from": "Distribution Hub", "to": "Site A", "fla": 36.483, "flo": 127.811, "tla": 36.501, "tlo": 127.782, "km": 3.3, "pk": "08:01", "dv": "14:26"}, {"type": "empty", "from": "Site A", "to": "Distribution Hub", "fla": 36.501, "flo": 127.782, "tla": 36.483, "tlo": 127.811, "km": 3.3, "t": "09:52"}, {"type": "loaded", "from": "Distribution Hub", "to": "Site B", "fla": 36.483, "flo": 127.811, "tla": 36.589, "tlo": 127.781, "km": 12.2, "pk": "09:52", "dv": "14:35"}, {"type": "empty", "from": "Site B", "to": "Distribution Hub", "fla": 36.589, "flo": 127.781, "tla": 36.483, "tlo": 127.811, "km": 12.2, "t": "09:52"}, {"type": "loaded", "from": "Distribution Hub", "to": "Site B", "fla": 36.483, "flo": 127.811, "tla": 36.589, "tlo": 127.781, "km": 12.2, "pk": "09:52", "dv": "14:35"}, {"type": "empty", "from": "Site B", "to": "Distribution Hub", "fla": 36.589, "flo": 127.781, "tla": 36.483, "tlo": 127.811, "km": 12.2, "t": "15:50"}, {"type": "loaded", "from": "Distribution Hub", "to": "Site C", "fla": 36.483, "flo": 127.811, "tla": 36.44, "tlo": 127.815, "km": 4.8, "pk": "15:50", "dv": "18:27"}, {"type": "empty", "from": "Site C", "to": "Distribution Hub", "fla": 36.44, "flo": 127.815, "tla": 36.483, "tlo": 127.811, "km": 4.8, "t": "17:45"}, {"type": "loaded", "from": "Distribution Hub", "to": "Site D", "fla": 36.483, "flo": 127.811, "tla": 36.486, "tlo": 127.81, "km": 0.4, "pk": "17:45", "dv": "20:51"}, {"type": "empty", "from": "Site D", "to": "Distribution Hub", "fla": 36.486, "flo": 127.81, "tla": 36.483, "tlo": 127.811, "km": 0.4, "t": "19:34"}, {"type": "loaded", "from": "Distribution Hub", "to": "Site D", "fla": 36.483, "flo": 127.811, "tla": 36.486, "tlo": 127.81, "km": 0.4, "pk": "19:34", "dv": "20:51"}, {"type": "empty", "from": "Site D", "to": "Distribution Hub", "fla": 36.486, "flo": 127.81, "tla": 36.483, "tlo": 127.811, "km": 0.4, "t": "20:23"}, {"type": "loaded", "from": "Distribution Hub", "to": "Site D", "fla": 36.483, "flo": 127.811, "tla": 36.486, "tlo": 127.81, "km": 0.4, "pk": "20:23", "dv": "20:51"}], "nodes": [{"name": "Distribution Hub", "lat": 36.483, "lon": 127.811, "role": "hub"}, {"name": "Site A", "lat": 36.501, "lon": 127.782, "role": "dest"}, {"name": "Site B", "lat": 36.589, "lon": 127.781, "role": "dest"}, {"name": "Site C", "lat": 36.44, "lon": 127.815, "role": "dest"}, {"name": "Site D", "lat": 36.486, "lon": 127.81, "role": "dest"}]};
+const map=L.map('map');
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+  {attribution:'&copy; OpenStreetMap &copy; CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
+const pts=[];
+DATA.legs.forEach(l=>{pts.push([l.fla,l.flo],[l.tla,l.tlo]);
+  L.polyline([[l.fla,l.flo],[l.tla,l.tlo]],{color:l.type==='loaded'?'#1d4ed8':'#ea580c',
+    weight:l.type==='loaded'?4:3,opacity:.85,dashArray:l.type==='loaded'?null:'6,7'}).addTo(map)
+    .bindTooltip((l.type==='loaded'?'Loaded: ':'Empty: ')+l.from+' → '+l.to+' ('+l.km+' km)');});
+DATA.nodes.forEach(n=>L.circleMarker([n.lat,n.lon],{radius:n.role==='hub'?9:6,
+  color:n.role==='hub'?'#ef4444':'#1d4ed8',fillColor:n.role==='hub'?'#ef4444':'#3b82f6',
+  fillOpacity:.9,weight:2}).addTo(map).bindTooltip(n.name));
+map.fitBounds(pts,{padding:[40,40]});
+const panel=document.getElementById('panel');
+DATA.legs.forEach((l,idx)=>{const t=l.type==='loaded'?(l.pk+(l.dv?(' → '+l.dv):'')):('~'+l.t);
+  panel.insertAdjacentHTML('beforeend',`<div class="leg" id="leg-${idx}"><span class="dot ${l.type}"></span><div>
+      <div class="r">${l.from} <span style="color:#8aa0bd">→</span> ${l.to}</div>
+      <div class="m"><span class="tag ${l.type}">${l.type}</span> &nbsp;${t} &nbsp;&middot;&nbsp; ${l.km} km</div></div></div>`);});
+const truckIcon=L.divIcon({className:'',html:'<div class="truck">🚚</div>',iconSize:[22,22],iconAnchor:[11,11]});
+const segs=DATA.legs;
+let truck=L.marker([segs[0].fla,segs[0].flo],{icon:truckIcon,zIndexOffset:1000}).addTo(map);
+let segIdx=0,running=false,raf=null,speed=1,segStart=null,carryF=0;
+const playBtn=document.getElementById('play'),legno=document.getElementById('legno'),banner=document.getElementById('banner');
+const durFor=s=>Math.min(4500,Math.max(700,s.km*120)),lerp=(a,b,f)=>a+(b-a)*f;
+function highlight(i){document.querySelectorAll('.leg.cur').forEach(e=>e.classList.remove('cur'));
+  const el=document.getElementById('leg-'+i);if(el){el.classList.add('cur');el.scrollIntoView({block:'nearest',behavior:'smooth'});}
+  const s=segs[i];legno.textContent=(i+1);
+  banner.innerHTML=`<b>${s.type.toUpperCase()}</b> &nbsp;${s.from} → ${s.to} &nbsp;&middot;&nbsp; ${s.km} km &nbsp;&middot;&nbsp; leg <b>${i+1}</b>/${segs.length}`;}
+function step(ts){if(!running)return;const seg=segs[segIdx],dur=durFor(seg)/speed;
+  if(segStart===null){segStart=ts-carryF*dur;highlight(segIdx);}
+  let f=(ts-segStart)/dur;if(f>1)f=1;carryF=f;
+  truck.setLatLng([lerp(seg.fla,seg.tla,f),lerp(seg.flo,seg.tlo,f)]);
+  if(f>=1){segIdx++;carryF=0;segStart=null;
+    if(segIdx>=segs.length){running=false;playBtn.innerHTML='&#9654; Play';banner.innerHTML='<b>Day complete.</b> Press Reset to replay.';segIdx=segs.length-1;return;}}
+  raf=requestAnimationFrame(step);}
+playBtn.onclick=()=>{if(running){running=false;cancelAnimationFrame(raf);playBtn.innerHTML='&#9654; Play';return;}
+  if(segIdx>=segs.length-1&&carryF>=1){segIdx=0;carryF=0;}
+  running=true;segStart=null;playBtn.innerHTML='&#10073;&#10073; Pause';raf=requestAnimationFrame(step);};
+document.getElementById('reset').onclick=()=>{running=false;cancelAnimationFrame(raf);segIdx=0;carryF=0;segStart=null;
+  truck.setLatLng([segs[0].fla,segs[0].flo]);playBtn.innerHTML='&#9654; Play';highlight(0);};
+document.getElementById('speed').onchange=e=>{speed=parseFloat(e.target.value);segStart=null;};
+highlight(0);
+</script></body></html>
